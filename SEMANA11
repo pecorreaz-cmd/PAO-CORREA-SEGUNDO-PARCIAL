@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Sistema Avanzado de Gestión de Inventario
+- POO con clases Producto e Inventario
+- Uso de colecciones: dict (almacenamiento rápido por ID), set (índice por nombre), list/tuple (salidas ordenadas)
+- Persistencia en archivo JSON (serialización/deserialización)
+- Menú interactivo en consola con validaciones y manejo de excepciones
+"""
+
+import json
+from dataclasses import dataclass, asdict
+from typing import Dict, Set, List, Optional
+
+
+# ---------------------- Clase Producto ----------------------
+@dataclass
+class Producto:
+    id_producto: str
+    nombre: str
+    cantidad: int
+    precio: float
+
+    # Getters
+    def get_id(self) -> str:
+        return self.id_producto
+
+    def get_nombre(self) -> str:
+        return self.nombre
+
+    def get_cantidad(self) -> int:
+        return self.cantidad
+
+    def get_precio(self) -> float:
+        return self.precio
+
+    # Setters con validación básica
+    def set_nombre(self, nuevo_nombre: str) -> None:
+        if not nuevo_nombre.strip():
+            raise ValueError("El nombre no puede estar vacío.")
+        self.nombre = nuevo_nombre.strip()
+
+    def set_cantidad(self, nueva_cantidad: int) -> None:
+        if nueva_cantidad < 0:
+            raise ValueError("La cantidad no puede ser negativa.")
+        self.cantidad = int(nueva_cantidad)
+
+    def set_precio(self, nuevo_precio: float) -> None:
+        if nuevo_precio < 0:
+            raise ValueError("El precio no puede ser negativo.")
+        self.precio = float(nuevo_precio)
+
+    # Serialización
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        # Cambiar la clave para que sea "id" como se suele usar en JSON
+        d["id"] = d.pop("id_producto")
+        return d
+
+    @staticmethod
+    def from_dict(data: dict) -> "Producto":
+        # Admite tanto "id" como "id_producto" por compatibilidad
+        idp = data.get("id", data.get("id_producto"))
+        return Producto(
+            id_producto=str(idp),
+            nombre=str(data["nombre"]),
+            cantidad=int(data["cantidad"]),
+            precio=float(data["precio"]),
+        )
+
+
+# ---------------------- Clase Inventario ----------------------
+class Inventario:
+    def __init__(self) -> None:
+        # Diccionario principal: ID -> Producto
+        self.productos: Dict[str, Producto] = {}
+        # Índice secundario por nombre normalizado: nombre -> set de IDs
+        self.indice_nombre: Dict[str, Set[str]] = {}
+
+    # ---------- Helpers de índice ----------
+    @staticmethod
+    def _norm(s: str) -> str:
+        return s.casefold().strip()
+
+    def _indexar(self, producto: Producto) -> None:
+        clave = self._norm(producto.get_nombre())
+        self.indice_nombre.setdefault(clave, set()).add(producto.get_id())
+
+    def _desindexar(self, producto: Producto) -> None:
+        clave = self._norm(producto.get_nombre())
+        ids = self.indice_nombre.get(clave)
+        if ids:
+            ids.discard(producto.get_id())
+            if not ids:
+                self.indice_nombre.pop(clave, None)
+
+    # ---------- Operaciones CRUD ----------
+    def añadir_producto(self, producto: Producto) -> bool:
+        pid = producto.get_id()
+        if pid in self.productos:
+            print("⚠️ Ya existe un producto con ese ID.")
+            return False
+        self.productos[pid] = producto
+        self._indexar(producto)
+        print("✅ Producto añadido correctamente.")
+        return True
+
+    def eliminar_producto(self, id_producto: str) -> bool:
+        p = self.productos.pop(id_producto, None)
+        if p is None:
+            print("⚠️ No existe un producto con ese ID.")
+            return False
+        self._desindexar(p)
+        print("🗑️ Producto eliminado correctamente.")
+        return True
+
+    def actualizar_producto(
+        self,
+        id_producto: str,
+        nueva_cantidad: Optional[int] = None,
+        nuevo_precio: Optional[float] = None,
+        nuevo_nombre: Optional[str] = None,
+    ) -> bool:
+        p = self.productos.get(id_producto)
+        if p is None:
+            print("⚠️ No existe un producto con ese ID.")
+            return False
+        try:
+            if nuevo_nombre is not None and nuevo_nombre.strip() != p.get_nombre():
+                # Actualizamos índice de nombre
+                self._desindexar(p)
+                p.set_nombre(nuevo_nombre)
+                self._indexar(p)
+            if nueva_cantidad is not None:
+                p.set_cantidad(nueva_cantidad)
+            if nuevo_precio is not None:
+                p.set_precio(nuevo_precio)
+            print("🔄 Producto actualizado correctamente.")
+            return True
+        except ValueError as e:
+            print(f"⚠️ {e}")
+            return False
+
+    # ---------- Búsquedas ----------
+    def buscar_por_nombre(self, texto: str) -> List[Producto]:
+        """
+        Búsqueda por nombre (coincidencia parcial, sin mayúsculas/minúsculas).
+        Primero usa el índice para coincidencia exacta; si no, recorre para coincidencia parcial.
+        """
+        if not texto.strip():
+            return []
+        q = self._norm(texto)
+        # Coincidencia exacta por índice
+        exact_ids = self.indice_nombre.get(q, set())
+        resultados: List[Producto] = [self.productos[i] for i in exact_ids]
+
+        # Coincidencia parcial (contains)
+        if not resultados:
+            for p in self.productos.values():
+                if q in self._norm(p.get_nombre()):
+                    resultados.append(p)
+        return resultados
+
+    def mostrar_todos(self) -> List[Producto]:
+        return list(self.productos.values())
+
+    # ---------- Persistencia ----------
+    def guardar_en_archivo(self, nombre_archivo: str = "inventario.json") -> bool:
+        try:
+            data = {pid: p.to_dict() for pid, p in self.productos.items()}
+            with open(nombre_archivo, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            print(f"💾 Inventario guardado en '{nombre_archivo}'.")
+            return True
+        except Exception as e:
+            print(f"⚠️ Error al guardar el archivo: {e}")
+            return False
+
+    def cargar_desde_archivo(self, nombre_archivo: str = "inventario.json") -> bool:
+        try:
+            with open(nombre_archivo, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.productos.clear()
+            self.indice_nombre.clear()
+            for pid, pdict in data.items():
+                p = Producto.from_dict(pdict)
+                self.productos[pid] = p
+                self._indexar(p)
+            print(f"📂 Inventario cargado desde '{nombre_archivo}'.")
+            return True
+        except FileNotFoundError:
+            print("ℹ️ No se encontró el archivo; se creará al guardar por primera vez.")
+            return False
+        except Exception as e:
+            print(f"⚠️ Error al cargar el archivo: {e}")
+            return False
+
+
+# ---------------------- Interfaz de Usuario ----------------------
+def _leer_str(msg: str, obligatorio: bool = True) -> Optional[str]:
+    while True:
+        s = input(msg).strip()
+        if s or not obligatorio:
+            return s if s else None
+        print("⚠️ Campo obligatorio.")
+
+def _leer_int(msg: str, permitir_vacio: bool = False) -> Optional[int]:
+    while True:
+        s = input(msg).strip()
+        if permitir_vacio and s == "":
+            return None
+        try:
+            v = int(s)
+            if v < 0:
+                raise ValueError
+            return v
+        except ValueError:
+            print("⚠️ Ingrese un entero válido (>= 0).")
+
+def _leer_float(msg: str, permitir_vacio: bool = False) -> Optional[float]:
+    while True:
+        s = input(msg).strip()
+        if permitir_vacio and s == "":
+            return None
+        try:
+            v = float(s)
+            if v < 0:
+                raise ValueError
+            return v
+        except ValueError:
+            print("⚠️ Ingrese un número válido (>= 0).")
+
+
+def menu() -> None:
+    inventario = Inventario()
+    inventario.cargar_desde_archivo()
+
+    opciones = {
+        "1": "Añadir producto",
+        "2": "Eliminar producto",
+        "3": "Actualizar producto",
+        "4": "Buscar producto por nombre",
+        "5": "Mostrar todos los productos",
+        "6": "Guardar inventario",
+        "7": "Cargar inventario",
+        "8": "Salir",
+    }
+
+    while True:
+        print("\n--- Menú de Gestión de Inventario ---")
+        for k in sorted(opciones.keys(), key=int):
+            print(f"{k}. {opciones[k]}")
+
+        opcion = input("Seleccione una opción: ").strip()
+
+        if opcion == "1":
+            print("\n➕ Añadir producto")
+            idp = _leer_str("ID (único): ")
+            if idp in inventario.productos:
+                print("⚠️ Ese ID ya existe.")
+                continue
+            nombre = _leer_str("Nombre: ")
+            cantidad = _leer_int("Cantidad (entero >= 0): ")
+            precio = _leer_float("Precio (>= 0): ")
+            try:
+                p = Producto(idp, nombre, cantidad, precio)
+                inventario.añadir_producto(p)
+            except ValueError as e:
+                print(f"⚠️ {e}")
+
+        elif opcion == "2":
+            print("\n🗑️ Eliminar producto")
+            idp = _leer_str("ID del producto a eliminar: ")
+            inventario.eliminar_producto(idp)
+
+        elif opcion == "3":
+            print("\n🔄 Actualizar producto")
+            idp = _leer_str("ID del producto a actualizar: ")
+            nueva_cantidad = _leer_int("Nueva cantidad (ENTER para mantener): ", permitir_vacio=True)
+            nuevo_precio = _leer_float("Nuevo precio (ENTER para mantener): ", permitir_vacio=True)
+            nuevo_nombre = _leer_str("Nuevo nombre (ENTER para mantener): ", obligatorio=False)
+            inventario.actualizar_producto(idp, nueva_cantidad, nuevo_precio, nuevo_nombre)
+
+        elif opcion == "4":
+            print("\n🔎 Buscar producto por nombre")
+            q = _leer_str("Texto a buscar: ")
+            encontrados = inventario.buscar_por_nombre(q)
+            if not encontrados:
+                print("⚠️ No se encontraron productos.")
+            else:
+                print(f"\nResultados ({len(encontrados)}):")
+                # Ordenamos por nombre, luego ID
+                for p in sorted(encontrados, key=lambda x: (x.get_nombre().casefold(), x.get_id())):
+                    print(f"ID: {p.get_id()} | Nombre: {p.get_nombre()} | Cantidad: {p.get_cantidad()} | Precio: {p.get_precio():.2f}")
+
+        elif opcion == "5":
+            print("\n📦 Inventario actual")
+            todos = inventario.mostrar_todos()
+            if not todos:
+                print("El inventario está vacío.")
+            else:
+                for p in sorted(todos, key=lambda x: (x.get_nombre().casefold(), x.get_id())):
+                    print(f"ID: {p.get_id()} | Nombre: {p.get_nombre()} | Cantidad: {p.get_cantidad()} | Precio: {p.get_precio():.2f}")
+
+        elif opcion == "6":
+            inventario.guardar_en_archivo()
+
+        elif opcion == "7":
+            inventario.cargar_desde_archivo()
+
+        elif opcion == "8":
+            # Guardado automático al salir (opcional)
+            inventario.guardar_en_archivo()
+            print("👋 Saliendo del sistema. ¡Hasta pronto!")
+            break
+
+        else:
+            print("⚠️ Opción inválida. Intente nuevamente.")
+
+
+if __name__ == "__main__":
+    menu()
