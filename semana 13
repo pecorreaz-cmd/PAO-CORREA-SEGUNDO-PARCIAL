@@ -1,0 +1,67 @@
+import tkinter as tk
+from tkinter import messagebox
+
+# ============================
+# Aplicación GUI con Tkinter
+# ============================
+
+class AppGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Gestor de Información - Ejemplo GUI")
+        self.root.geometry("400x350")
+
+        # ----- Etiqueta principal -----
+        self.label_title = tk.Label(root, text="Ingrese información:", font=("Arial", 12))
+        self.label_title.pack(pady=10)
+
+        # ----- Campo de texto -----
+        self.entry_data = tk.Entry(root, width=40)
+        self.entry_data.pack(pady=5)
+
+        # ----- Botones -----
+        frame_buttons = tk.Frame(root)
+        frame_buttons.pack(pady=10)
+
+        self.btn_add = tk.Button(frame_buttons, text="Agregar", command=self.agregar_dato)
+        self.btn_add.grid(row=0, column=0, padx=5)
+
+        self.btn_clear = tk.Button(frame_buttons, text="Limpiar", command=self.limpiar_lista)
+        self.btn_clear.grid(row=0, column=1, padx=5)
+
+        # ----- Lista para mostrar los datos -----
+        self.label_list = tk.Label(root, text="Datos agregados:")
+        self.label_list.pack(pady=5)
+
+        self.listbox = tk.Listbox(root, width=50, height=10)
+        self.listbox.pack(pady=5)
+
+    # ----- Función para agregar datos -----
+    def agregar_dato(self):
+        dato = self.entry_data.get().strip()
+        if dato:  
+            self.listbox.insert(tk.END, dato)
+            self.entry_data.delete(0, tk.END)  # limpiar el campo de texto
+        else:
+            messagebox.showwarning("Entrada vacía", "Por favor ingrese algún dato.")
+
+    # ----- Función para limpiar la lista -----
+    def limpiar_lista(self):
+        seleccion = self.listbox.curselection()
+        if seleccion:
+            # Borra solo el elemento seleccionado
+            self.listbox.delete(seleccion)
+        else:
+            # Si no hay selección, borra toda la lista
+            confirm = messagebox.askyesno("Confirmar", "¿Desea borrar todos los datos?")
+            if confirm:
+                self.listbox.delete(0, tk.END)
+
+
+# ============================
+# Ejecutar aplicación
+# ============================
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = AppGUI(root)
+    root.mainloop()
